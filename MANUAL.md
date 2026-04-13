@@ -2,54 +2,52 @@
 
 **Versão:** 0.1.0  
 **Licença:** MIT  
-**Descrição:** Middleware open source de optimização de tokens para APIs LLM. Reduz o consumo de tokens em 35–70% sem degradar a qualidade das respostas — poupando custo, energia, CO₂ e água.
+**Repositório:** https://github.com/namatosofiro/toquenz
 
 ---
 
 ## Índice
 
-1. [Conceito](#1-conceito)
+1. [Conceito e motivação](#1-conceito-e-motivação)
 2. [Instalação](#2-instalação)
 3. [Configuração](#3-configuração)
 4. [Arranque](#4-arranque)
 5. [Interface](#5-interface)
-6. [Pipeline de Compressão](#6-pipeline-de-compressão)
-7. [Métricas e Impacto Ambiental](#7-métricas-e-impacto-ambiental)
-8. [Política de Compressão](#8-política-de-compressão)
-9. [Exportar Sessão](#9-exportar-sessão)
-10. [Segurança](#10-segurança)
-11. [Arquitectura](#11-arquitectura)
-12. [FAQ](#12-faq)
+6. [Pipeline de compressão](#6-pipeline-de-compressão)
+7. [Providers suportados](#7-providers-suportados)
+8. [Métricas e impacto ambiental](#8-métricas-e-impacto-ambiental)
+9. [Política de compressão](#9-política-de-compressão)
+10. [Exportar sessão](#10-exportar-sessão)
+11. [Segurança](#11-segurança)
+12. [Arquitectura técnica](#12-arquitectura-técnica)
+13. [Adicionar um provider](#13-adicionar-um-provider)
+14. [FAQ](#14-faq)
 
 ---
 
-## 1. Conceito
+## 1. Conceito e motivação
 
 Cada chamada a uma API LLM envia um contexto acumulado de mensagens. À medida que a conversa cresce, o contexto repete informação, contém markdown desnecessário, inclui turnos antigos irrelevantes e documentos inteiros quando apenas alguns parágrafos importam.
 
-O Toquenz senta-se entre o teu código e a API e, antes de cada chamada, comprime esse contexto em 4 camadas:
+O Toquenz senta-se entre o utilizador e a API. Antes de cada chamada, comprime o contexto através de uma pipeline de 4 camadas e reporta exactamente quanto foi poupado.
 
 ```
 Mensagem do utilizador
       ↓
- [1] Limpeza         → remove redundância determinística
+[1] Cleaner     → remove redundância determinística
       ↓
- [2] Truncagem       → comprime turnos antigos em sumários
+[2] Truncator   → comprime turnos antigos em sumários
       ↓
- [3] Chunking        → filtra parágrafos irrelevantes (TF-IDF)
+[3] Chunker     → filtra parágrafos irrelevantes (TF-IDF)
       ↓
- [4] Cache           → reutiliza system prompt (Anthropic caching)
+[4] Cache       → reutiliza system prompt (Anthropic caching)
       ↓
-  API Anthropic
-      ↓
-  Resposta + Métricas
+  API do provider  →  Resposta + Métricas
 ```
 
-**Impacto por token poupado:**
-- Menor custo de API
-- Menor consumo energético nos datacenters
-- Menor emissão de CO₂
-- Menor consumo de água (arrefecimento)
+**Cada token poupado = menos computação = menos energia = menos CO₂ = menos água.**
+
+À escala de 1000 utilizadores/dia, a poupança ambiental é mensurável e comunicável — relevante para relatórios ESG e conformidade com o EU AI Act.
 
 ---
 
@@ -59,15 +57,13 @@ Mensagem do utilizador
 
 - Node.js 18 ou superior
 - pnpm (recomendado) ou npm
-- Conta Anthropic com API key
+- Pelo menos uma API key de um dos 10 providers suportados
 
 ### Passos
 
 ```bash
-# Clonar ou descomprimir o projecto
-cd ~/toquenz
-
-# Instalar dependências
+git clone https://github.com/namatosofiro/toquenz.git
+cd toquenz
 pnpm install
 ```
 
@@ -75,60 +71,72 @@ pnpm install
 
 ## 3. Configuração
 
-### 3.1 API Key (obrigatório)
+### 3.1 Criar o ficheiro de ambiente
 
 ```bash
 cp .env.example .env
 ```
 
-Edita o ficheiro `.env`:
+Edita o `.env` e preenche apenas os providers que pretendes usar:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxx
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+GOOGLE_API_KEY=...
+MISTRAL_API_KEY=...
+GROQ_API_KEY=gsk_...
+TOGETHER_API_KEY=...
+PERPLEXITY_API_KEY=pplx-...
+XAI_API_KEY=xai-...
+DEEPSEEK_API_KEY=...
+COHERE_API_KEY=...
+
 PROXY_PORT=3333
 ```
 
-> **Segurança:** A API key nunca sai do servidor. O browser nunca a vê.  
-> O ficheiro `.env` está no `.gitignore` — nunca será commitado.
+Não é necessário preencher todos — o proxy arranca com os que estiverem definidos e reporta o estado de cada um.
 
-### 3.2 Verificar configuração
+### 3.2 Verificar o proxy
 
 ```bash
 node proxy.mjs
 ```
 
-Deves ver:
+Output esperado:
 ```
-[toquenz-proxy] Listening on http://127.0.0.1:3333
-[toquenz-proxy] API key: sk-ant-api0...xXxX
-[toquenz-proxy] Only accessible from localhost — key never reaches the browser
+[toquenz-proxy] Provider status:
+  ✓ anthropic   sk-ant-ap...xXxX
+  ✓ openai      sk-proj-...xXxX
+  ✗ google      NOT SET
+  ✗ mistral     NOT SET
+  ...
+
+[toquenz-proxy] Ready on http://127.0.0.1:3333
+[toquenz-proxy] Keys are server-side only — never reach the browser
 ```
 
-Se vires `ERROR: ANTHROPIC_API_KEY is not set` — verifica o `.env`.
+Se vires `ERROR: No API keys found` — verifica se o `.env` existe e tem pelo menos uma key.
 
 ---
 
 ## 4. Arranque
 
-### Modo desenvolvimento (recomendado)
+### Modo recomendado (proxy + UI em simultâneo)
 
-Dois terminais:
-
-**Terminal 1 — Proxy:**
 ```bash
-cd ~/toquenz
+pnpm start
+```
+
+### Modo separado (dois terminais)
+
+**Terminal 1:**
+```bash
 node proxy.mjs
 ```
 
-**Terminal 2 — Interface:**
+**Terminal 2:**
 ```bash
-cd ~/toquenz
 pnpm dev
-```
-
-Ou num único comando:
-```bash
-pnpm start
 ```
 
 Abre o browser em: **http://localhost:5173**
@@ -140,74 +148,71 @@ Abre o browser em: **http://localhost:5173**
 A interface tem 4 tabs:
 
 ### CHAT
-A interface principal. Escreve mensagens normalmente.
+Interface principal de conversação.
 
 - **Enter** — envia mensagem
-- **Shift+Enter** — nova linha
-- **"show compression preview"** — mostra/esconde o painel before/after antes de cada envio
+- **Shift+Enter** — nova linha sem enviar
+- **"show compression preview"** — toggle do painel before/after
 
-O painel before/after mostra:
-- Contexto original vs. contexto comprimido
-- Tokens poupados naquele turno
-- Custo, CO₂ e H₂O poupados
-- Camadas aplicadas
-- **Risk indicator** (verde/amarelo/vermelho)
+O painel before/after aparece antes de cada envio e mostra:
+- Contexto original vs. contexto comprimido lado a lado
+- Tokens poupados, custo, CO₂ e H₂O
+- Camadas aplicadas naquele turno
+- Risk indicator (verde/amarelo/vermelho)
 
 ### METRICS
-Dashboard da sessão completa:
-- Tokens originais vs. enviados (acumulado)
-- Percentagem de redução
-- Custo poupado em USD
-- CO₂ poupado em gramas
-- Água poupada em mL
-- Gráfico de evolução por turno
+Dashboard acumulado da sessão completa:
+- Totais de tokens, custo, CO₂ e água poupados
+- Gráfico de evolução turno a turno
+- Número de turnos processados
 
 ### POLICY
-Configuração do comportamento de compressão (ver secção 8).
+Configuração do comportamento de compressão (ver secção 9).
 
 ### SETTINGS
-Selecção de modelo, max tokens e system prompt.
+Selecção de provider, modelo, max tokens e system prompt.
 
 ---
 
-## 6. Pipeline de Compressão
+## 6. Pipeline de compressão
 
-### Camada 1 — Cleaner (Limpeza)
+### Camada 1 — Cleaner
 
-Aplica transformações determinísticas ao texto:
+Transformações determinísticas ao texto:
 
-| Operação | Exemplo |
-|----------|---------|
-| Normalizar espaços | `"texto   extra"` → `"texto extra"` |
-| Remover markdown redundante | `**bold**` → `bold` |
-| Normalizar bullet points | `* item` → `- item` |
-| Remover linhas em branco extra | 3+ newlines → 2 newlines |
-| Deduplicar frases repetidas | Remove frases idênticas entre turnos |
+| Operação | Antes | Depois |
+|----------|-------|--------|
+| Normalizar espaços | `"texto   extra"` | `"texto extra"` |
+| Remover markdown | `**bold**` | `bold` |
+| Normalizar bullets | `* item` | `- item` |
+| Remover linhas em branco | 3+ newlines | 2 newlines |
+| Deduplicar frases | Frases repetidas entre turnos | Removidas |
 
-**O que nunca toca:** blocos de código (` ``` `), inline code, JSON, frases marcadas como CRITICAL/WARNING/ERROR.
+**Nunca toca:** blocos de código, inline code, JSON, frases marcadas CRITICAL/WARNING/ERROR.
 
 **Poupança típica:** 3–8%
 
 ---
 
-### Camada 2 — Truncator (Truncagem)
+### Camada 2 — Truncator
 
-Comprime turnos antigos em sumários concisos, preservando os turnos mais recentes intactos.
+Comprime turnos antigos em sumários concisos. Os turnos mais recentes ficam sempre intactos.
 
-**Exemplo:**
+**Exemplo de compressão:**
 
-Turno antigo (100 tokens):
+Original (120 tokens):
 ```
 User: Qual é a capital de França?
-Assistant: A capital de França é Paris, cidade conhecida pela Torre Eiffel...
+Assistant: A capital de França é Paris, uma cidade conhecida pela Torre Eiffel,
+           o Museu do Louvre e a sua rica história cultural...
 ```
 
-Após truncagem (25 tokens):
+Após truncagem (28 tokens):
 ```
-[Summary] Q: "Qual é a capital de França?" A: "A capital de França é Paris..."
+[Summary] Q: "Qual é a capital de França?" A: "A capital de França é Paris, uma cidade conhecida..."
 ```
 
-**Configúravel:**
+**Configúrável via:**
 - `protectedTurns` — quantos turnos recentes ficam intactos (padrão: 3)
 - `aggressiveness` — conservador/balanceado/máximo
 
@@ -215,102 +220,127 @@ Após truncagem (25 tokens):
 
 ---
 
-### Camada 3 — Chunker (Relevância)
+### Camada 3 — Chunker (TF-IDF)
 
-Quando o utilizador envia texto longo (documentos, código extenso, logs), o Chunker usa TF-IDF para identificar os parágrafos mais relevantes para a query actual e omite os restantes.
+Quando o utilizador envia texto longo, o Chunker usa TF-IDF para identificar os parágrafos mais relevantes para a query actual e omite os restantes.
+
+**Condição de activação:** mensagens do utilizador com mais de 500 caracteres e pelo menos 3 parágrafos.
 
 **Exemplo:**
-- Utilizador envia documento de 2000 tokens
+- Utilizador cola documento de 2000 tokens com 10 parágrafos
 - Query: "qual é a política de privacidade?"
-- Chunker identifica 3 de 10 parágrafos como relevantes
-- Envia apenas esses 3 → poupança de 70% nesse documento
-
-**Nota:** Só actua em mensagens do utilizador com mais de 500 caracteres e pelo menos 3 parágrafos.
+- Chunker identifica 3 parágrafos relevantes, omite os outros 7
+- Poupança: ~70% nesse documento
 
 **Poupança típica:** 40–80% quando há documentos longos
 
 ---
 
-### Camada 4 — Cache (Prompt Caching)
+### Camada 4 — Cache
 
-Marca o system prompt para o mecanismo de caching da Anthropic. Quando o mesmo system prompt é usado em múltiplas chamadas, a Anthropic serve-o da cache a 10% do custo normal.
+Marca o system prompt para o mecanismo de [prompt caching da Anthropic](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching). Chamadas subsequentes com o mesmo system prompt são servidas da cache a **10% do custo normal**.
 
-**Condição:** O system prompt tem de ser idêntico entre chamadas (o que acontece tipicamente numa sessão).
+**Condição:** só activa com provider `anthropic`. Ignorada para os restantes providers.
 
 **Poupança típica:** 10–25% do custo do system prompt em sessões longas
 
 ---
 
-## 7. Métricas e Impacto Ambiental
+## 7. Providers suportados
 
-### Conversão de tokens para impacto
-
-| Métrica | Fórmula | Fonte |
-|---------|---------|-------|
-| Custo USD | tokens × $3 / 1M | Preço Anthropic Sonnet (input) |
-| Energia | tokens × 0.001 kWh / 1000 | Estimativa LLM inference |
-| CO₂ | kWh × 233g / kWh | Média global da rede eléctrica |
-| Água | kWh × 1800 mL / kWh | WUE média datacenters |
-
-### Exemplo real
-
-Sessão de 50 turnos com documentos:
-- Tokens poupados: ~180 000
-- Custo poupado: ~$0.54
-- CO₂ poupado: ~42g (equivale a carregar um telemóvel ~6 vezes)
-- Água poupada: ~324 mL (equivale a um copo de água)
-
-À escala de 1000 utilizadores/dia, os valores multiplicam por 1000.
+| Provider | Modelos disponíveis | Preço input | Notas |
+|---------|-------------------|-------------|-------|
+| **Anthropic** | Claude Opus 4.6, Sonnet 4.5, Haiku 4.5 | $0.80–$15/MTok | Prompt caching ✦ |
+| **OpenAI** | GPT-4o, GPT-4o mini, o3-mini, GPT-4 Turbo | $0.15–$10/MTok | — |
+| **Google** | Gemini 2.0 Flash, 1.5 Pro, 1.5 Flash | $0.075–$1.25/MTok | Formato Gemini |
+| **Mistral** | Large, Small, Codestral | $0.10–$2/MTok | EU-native |
+| **Groq** | Llama 3.3 70B, Llama 3.1 8B, Mixtral | $0.05–$0.59/MTok | Menor latência ⚡ |
+| **Together AI** | Llama 3.3 70B, Llama 3.1 8B, Mixtral | $0.18–$0.88/MTok | Modelos open source |
+| **Perplexity** | Sonar Pro, Sonar, Sonar Reasoning | $1–$3/MTok | Web-augmented |
+| **xAI** | Grok 3, Grok 3 mini, Grok 2 | $0.30–$3/MTok | — |
+| **DeepSeek** | DeepSeek V3, DeepSeek R1 | $0.27–$0.55/MTok | Mais barato |
+| **Cohere** | Command A, Command R+, Command R | $0.15–$2.5/MTok | Enterprise RAG |
 
 ---
 
-## 8. Política de Compressão
+## 8. Métricas e impacto ambiental
+
+### Conversões utilizadas
+
+| Métrica | Fórmula | Fonte |
+|---------|---------|-------|
+| Energia | 0.001 kWh / 1 000 tokens | Estimativa inferência LLM |
+| CO₂ | 233 g CO₂ / kWh | Média global da rede eléctrica |
+| Água | 1 800 mL / kWh | WUE média de datacenters |
+
+### Exemplo real — sessão de 50 turnos com documentos
+
+| Métrica | Valor |
+|---------|-------|
+| Tokens poupados | ~180 000 |
+| Custo poupado (Sonnet) | ~$0.54 |
+| CO₂ poupado | ~42 g |
+| Água poupada | ~324 mL |
+
+À escala de 1 000 utilizadores/dia:
+- 42 kg CO₂/dia evitados
+- 324 litros de água preservados por dia
+
+Estes valores são relevantes para **relatórios ESG** e para comunicar impacto ambiental de sistemas de IA em conformidade com o **EU AI Act**.
+
+---
+
+## 9. Política de compressão
 
 Acede em **POLICY** tab.
 
 ### Toggles de camadas
 
-Cada camada pode ser activada/desactivada individualmente. Útil para:
-- Desactivar o Chunker quando trabalhas com código (não queres parágrafos omitidos)
-- Desactivar o Truncator em conversas curtas
-- Desactivar o Cache se usas system prompts variáveis
+Cada camada pode ser activada/desactivada individualmente.
+
+**Quando desactivar o Chunker:** ao trabalhar com código ou dados estruturados que não devem ser filtrados por relevância semântica.
+
+**Quando desactivar o Truncator:** em conversas curtas onde todo o contexto é sempre relevante.
+
+**Quando desactivar o Cache:** se o system prompt muda frequentemente (cache misses anulam o benefício).
 
 ### Aggressiveness
 
-| Modo | Comportamento |
-|------|--------------|
-| CONSERVATIVE | Protege 80% do contexto. Pequenas poupanças, risco mínimo. |
-| BALANCED | Protege 65% do contexto. Equilíbrio qualidade/poupança. |
-| MAXIMUM | Protege 50% do contexto. Máxima poupança, maior risco de perda de contexto. |
+| Modo | Protege | Comprime |
+|------|---------|---------|
+| CONSERVATIVE | 80% do contexto | 20% (turnos muito antigos) |
+| BALANCED | 65% do contexto | 35% |
+| MAXIMUM | 50% do contexto | 50% |
 
-### Protected Turns
+### Protected turns
 
-Slider 1–10. Define quantos turnos recentes ficam sempre intactos, independentemente da aggressiveness.
+Slider de 1 a 10. Os últimos N turnos ficam sempre intactos, independentemente da aggressiveness.
 
-**Recomendação:** Manter em 3 (padrão). Aumentar para 5–8 em conversas técnicas onde o contexto recente é crítico.
+**Recomendação:** manter em 3 (padrão). Aumentar para 5–8 em conversas técnicas onde o contexto recente é crítico.
 
-### Risk Indicator
+### Risk indicator
 
 | Cor | Significado |
 |-----|------------|
-| 🟢 VERDE | Poupança < 15%. Risco negligenciável. |
-| 🟡 AMARELO | Poupança 15–50%. Alguma compressão de conteúdo. |
-| 🔴 VERMELHO | Poupança > 50% ou blocos de código afectados. Verificar before/after. |
+| 🟢 LOW RISK | Poupança < 15%. Risco negligenciável. |
+| 🟡 MEDIUM RISK | Poupança 15–50%. Alguma compressão de conteúdo. |
+| 🔴 HIGH RISK | Poupança > 50% ou blocos de código afectados. Verificar before/after. |
 
 ---
 
-## 9. Exportar Sessão
+## 10. Exportar sessão
 
-O botão **EXPORT JSON** (canto superior direito) descarrega um ficheiro JSON com:
+O botão **EXPORT JSON** (canto superior direito) descarrega um relatório completo:
 
 ```json
 {
   "version": "0.1.0",
-  "exportedAt": "2026-04-13T...",
+  "exportedAt": "2026-04-13T10:00:00Z",
   "config": {
+    "provider": "anthropic",
     "model": "claude-sonnet-4-5-20251001",
     "maxTokens": 4096,
-    "systemPrompt": "..."
+    "systemPrompt": "You are a helpful assistant."
   },
   "policy": { ... },
   "metrics": {
@@ -320,124 +350,173 @@ O botão **EXPORT JSON** (canto superior direito) descarrega um ficheiro JSON co
     "totalSavingsUsd": 0.0702,
     "totalCo2SavedGrams": 5.42,
     "totalWaterSavedMl": 41.7,
-    "turns": [ ... ]
+    "turns": [...]
   },
-  "messages": [ ... ]
+  "messages": [...]
 }
 ```
 
-> **Nota de segurança:** A API key **não** é incluída no export.
+> **Nota de segurança:** A API key **nunca** é incluída no export.
 
 ---
 
-## 10. Segurança
+## 11. Segurança
 
 ### Modelo de segurança
 
 ```
-Browser                    Proxy (localhost)         Anthropic
-  │                              │                       │
-  │── POST /api/anthropic ──────>│                       │
-  │   (sem credenciais)          │── POST /v1/messages ─>│
-  │                              │   x-api-key: sk-ant.. │
-  │<─ resposta ─────────────────<│<─ resposta ──────────<│
+Browser                    proxy.mjs (localhost)       Provider API
+  │                              │                          │
+  │── POST /anthropic/... ──────>│                          │
+  │   (sem credenciais)          │── x-api-key: sk-ant-... >│
+  │                              │   (injectado server-side) │
+  │<── resposta ────────────────<│<── resposta ─────────────<│
 ```
 
 ### Garantias
 
-| Garantia | Implementação |
-|---------|--------------|
-| API key nunca no browser | Proxy injeta server-side, `.env` não exposto |
+| Garantia | Como é implementada |
+|---------|-------------------|
+| API keys nunca no browser | Proxy injecta server-side, lidas do `.env` |
 | Sem retenção de dados | Sem base de dados, sessão perde-se ao refresh |
-| Auditável | 100% open source, sem código ofuscado |
-| Sem telemetria | Nenhuma chamada a serviços externos além da Anthropic |
+| Auditável | 100% open source MIT |
+| Sem telemetria | Zero chamadas a serviços externos além dos providers configurados |
 | CSP activo | `Content-Security-Policy` no `index.html` |
-| WASM seguro | `wasm-unsafe-eval` apenas para tiktoken |
-
-### O que o Toquenz não controla
-
-- O que a Anthropic faz com os dados (rege-se pelos seus Termos de Serviço)
-- Segurança de extensões de browser instaladas no teu sistema
-- Segurança da tua rede local
+| Export sem credenciais | `SafeAnthropicConfig` exclui apiKey por tipo |
+| Proxy só em localhost | Escuta em `127.0.0.1` — inacessível da rede local |
 
 ### Recomendações
 
-1. Usa API keys com limites de gasto configurados na Anthropic
-2. Nunca commites o `.env` (já está no `.gitignore`)
-3. Em produção com múltiplos utilizadores, implementa autenticação no proxy
+1. Usa API keys com limites de gasto configurados em cada provider
+2. Nunca commites o `.env` (está no `.gitignore`)
+3. Para produção com múltiplos utilizadores, adiciona autenticação ao proxy
 
 ---
 
-## 11. Arquitectura
+## 12. Arquitectura técnica
 
 ### Ficheiros
 
 ```
 toquenz/
-├── proxy.mjs                    # Servidor proxy Node.js (API key aqui)
-├── .env                         # Credenciais (não commitado)
+├── proxy.mjs                    # Servidor proxy Node.js (zero dependências externas)
+├── .env                         # Credenciais (gitignored)
 ├── .env.example                 # Template
 ├── .gitignore
 ├── package.json
-├── vite.config.ts               # Proxy /api/anthropic → localhost:3333
-├── index.html                   # CSP headers
+├── vite.config.ts               # Proxy dinâmico para todos os providers
+├── index.html                   # CSP + X-Frame-Options headers
 └── src/
-    ├── types/index.ts           # Tipos TypeScript
+    ├── types/index.ts           # Provider, Message, LLMConfig, CompressionResult...
     ├── lib/
-    │   ├── tokenizer.ts         # Wrapper tiktoken (cl100k_base, WASM)
-    │   ├── anthropic.ts         # Cliente HTTP (sem credenciais)
-    │   ├── metrics.ts           # Custo, CO₂, água
-    │   ├── pipeline.ts          # Orquestrador das 4 camadas
+    │   ├── llm.ts               # callLLM() — 10 providers, 3 formatos de API
+    │   ├── tokenizer.ts         # Wrapper tiktoken WASM (cl100k_base)
+    │   ├── metrics.ts           # estimateCost(), estimateCO2Grams(), estimateWaterMl()
+    │   ├── pipeline.ts          # runPipeline() — orquestra as 4 camadas
     │   └── compression/
     │       ├── cleaner.ts       # Camada 1 — limpeza determinística
     │       ├── truncator.ts     # Camada 2 — truncagem + sumários
     │       ├── chunker.ts       # Camada 3 — TF-IDF relevância
-    │       └── cache.ts         # Camada 4 — prompt caching
-    ├── store/session.ts         # Estado global (Zustand)
+    │       └── cache.ts         # Camada 4 — Anthropic prompt caching
+    ├── store/session.ts         # Zustand — estado global da sessão
     └── components/
-        ├── Chat.tsx             # Interface de chat
-        ├── BeforeAfter.tsx      # Painel before/after
-        ├── MetricsDashboard.tsx # Dashboard + gráfico
-        ├── PolicyConfig.tsx     # Configuração de política
-        ├── RiskIndicator.tsx    # Indicador verde/amarelo/vermelho
-        └── Settings.tsx        # Modelo, tokens, system prompt
+        ├── Chat.tsx
+        ├── BeforeAfter.tsx
+        ├── MetricsDashboard.tsx
+        ├── PolicyConfig.tsx
+        ├── RiskIndicator.tsx
+        └── Settings.tsx
 ```
 
 ### Dependências
 
 | Pacote | Versão | Função |
 |--------|--------|--------|
-| `@dqbd/tiktoken` | ^1.0.15 | Contagem real de tokens (WASM, cl100k_base) |
+| `@dqbd/tiktoken` | ^1.0.15 | Contagem real de tokens (WASM) |
 | `react` + `react-dom` | ^18.3.1 | UI |
 | `recharts` | ^2.12.7 | Gráfico de métricas |
 | `zustand` | ^4.5.4 | Estado global |
 | `vite` | ^5.3.4 | Build + dev server |
 | `tailwindcss` | ^3.4.4 | Estilos |
 
-Sem backend framework. Sem base de dados. Sem autenticação. Zero dependências no proxy além do Node.js built-in.
+O `proxy.mjs` usa apenas módulos built-in do Node.js — sem dependências adicionais.
+
+### Formatos de API suportados
+
+| Formato | Providers |
+|---------|----------|
+| Anthropic (próprio) | Anthropic |
+| Google Gemini | Google |
+| OpenAI-compatible | OpenAI, Mistral, Groq, Together, Perplexity, xAI, DeepSeek, Cohere |
 
 ---
 
-## 12. FAQ
+## 13. Adicionar um provider
 
-**O Toquenz funciona com outros modelos além do Claude?**  
-A lógica de compressão é agnóstica ao modelo. O proxy e o cliente estão configurados para a Anthropic. Para OpenAI, é necessário adaptar `proxy.mjs` e `anthropic.ts` (15–20 linhas).
+A maioria dos novos providers usa formato OpenAI-compatible. Para adicionar:
+
+**1. `proxy.mjs`** — adicionar ao objecto `PROVIDERS`:
+```js
+novoprovider: {
+  base:    'https://api.novoprovider.com',
+  key:     process.env.NOVOPROVIDER_API_KEY ?? '',
+  allowed: /^\/v1\/chat\/completions$/,
+  headers: (key) => ({
+    'Content-Type':  'application/json',
+    'Authorization': `Bearer ${key}`,
+  }),
+},
+```
+
+**2. `src/types/index.ts`** — adicionar ao tipo `Provider`:
+```ts
+export type Provider = 'anthropic' | 'openai' | ... | 'novoprovider'
+```
+
+**3. `src/lib/llm.ts`** — adicionar ao array `OAI_COMPATIBLE` e ao map `OAI_PATH`:
+```ts
+const OAI_PATH = {
+  ...
+  novoprovider: '/v1/chat/completions',
+}
+```
+
+**4. `src/components/Settings.tsx`** — adicionar à array `PROVIDERS` com modelos e preços.
+
+**5. `vite.config.ts`** — adicionar ao array `PROVIDERS` (as regras de proxy são geradas automaticamente).
+
+---
+
+## 14. FAQ
+
+**O Toquenz funciona sem backend?**  
+Não na versão actual — o `proxy.mjs` é obrigatório para manter as API keys seguras. Podes corrê-lo localmente em qualquer máquina com Node.js 18+.
 
 **A compressão pode degradar a qualidade das respostas?**  
-Sim, especialmente com aggressiveness MAXIMUM em conversas longas e técnicas. O risk indicator (vermelho) avisa quando o risco é elevado. O painel before/after permite verificar o que é enviado antes de confirmar.
+Sim, especialmente com `aggressiveness: maximum` em conversas longas e técnicas. O risk indicator (vermelho) avisa quando o risco é elevado. O painel before/after permite ver exactamente o que é enviado antes de confirmar.
 
 **Os dados ficam armazenados algures?**  
-Não. Sem base de dados, sem logs persistentes. A sessão existe apenas na memória do browser — ao fechar ou recarregar, perde-se. Usa EXPORT JSON para guardar.
+Não. Sem base de dados, sem logs persistentes. A sessão existe apenas na memória do browser — ao fechar ou recarregar, perde-se. Usa **EXPORT JSON** para guardar.
 
-**Posso usar o Toquenz como biblioteca num projecto existente?**  
-Sim. As funções em `src/lib/` são puras TypeScript sem dependências de React. Importa `runPipeline` de `pipeline.ts` directamente no teu projecto.
+**Posso usar o pipeline como biblioteca no meu projecto?**  
+Sim. As funções em `src/lib/` são TypeScript puro sem dependências de React. Importa `runPipeline` directamente:
+```ts
+import { runPipeline } from './src/lib/pipeline'
+const result = runPipeline(messages, policy, model, provider, query)
+```
 
-**Quanto custa a água que os datacenters consomem?**  
-A métrica de 1.8 L/kWh é uma média global (Lawrence Berkeley National Laboratory, 2016). Datacenters modernos com arrefecimento mais eficiente podem ser melhores; em regiões quentes ou com arrefecimento evaporativo, podem ser piores.
+**O Groq é diferente dos outros providers?**  
+O Groq usa formato OpenAI-compatible mas corre em hardware LPU proprietário, oferecendo latências muito inferiores. Ideal para casos de uso onde velocidade de resposta é crítica.
 
-**O proxy é seguro para expor na rede local?**  
-O proxy escuta em `127.0.0.1` (loopback only) — não é acessível a outros dispositivos da rede. Para partilhar na rede local, muda para `0.0.0.0` e implementa um mecanismo de autenticação.
+**O DeepSeek é seguro para dados sensíveis?**  
+A DeepSeek é uma empresa chinesa. Para dados sensíveis ou sujeitos a regulação (RGPD, NIS2), usa providers com datacenters na EU — Anthropic (AWS Frankfurt/Ireland) ou Mistral (França).
+
+**Como funciona a métrica de água?**  
+Os datacenters usam água para arrefecimento dos servidores. A métrica de 1.8 L/kWh é uma média da indústria (Lawrence Berkeley National Laboratory). Datacenters modernos com arrefecimento mais eficiente podem ser melhores; em regiões quentes, podem ser piores.
+
+**Posso contribuir com novos providers?**  
+Sim — ver secção 13. Um PR com provider novo deve incluir: preços actualizados, mínimo 2 modelos, e nota se usa formato não-standard.
 
 ---
 
-*Toquenz é open source (MIT). Contribuições bem-vindas.*
+*Toquenz é open source (MIT). Construído para tornar a IA mais eficiente, acessível e sustentável.*
