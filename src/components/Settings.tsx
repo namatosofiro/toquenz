@@ -150,17 +150,33 @@ export default function Settings({ config, onChange }: Props) {
 
       {/* Model selector */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">MODEL</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs text-gray-500">MODEL</label>
+          <span className="text-xs text-gray-600">any model ID accepted</span>
+        </div>
+        {/* Suggestions dropdown */}
         <select
-          value={config.model}
-          onChange={e => onChange({ model: e.target.value })}
-          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2
-            text-sm font-mono text-gray-100 focus:outline-none focus:border-green-500/50"
+          value={current.models.some(m => m.id === config.model) ? config.model : ''}
+          onChange={e => { if (e.target.value) onChange({ model: e.target.value }) }}
+          className="w-full bg-gray-800 border border-gray-700 rounded-t px-3 py-2
+            text-sm font-mono text-gray-400 focus:outline-none focus:border-green-500/50
+            border-b-0"
         >
+          <option value="">— select from list —</option>
           {current.models.map(m => (
             <option key={m.id} value={m.id}>{m.label}</option>
           ))}
         </select>
+        {/* Free-text override — accepts any model ID */}
+        <input
+          type="text"
+          value={config.model}
+          onChange={e => onChange({ model: e.target.value.trim() })}
+          placeholder="or type any model ID..."
+          className="w-full bg-gray-800 border border-gray-700 rounded-b px-3 py-2
+            text-sm font-mono text-gray-100 placeholder-gray-600
+            focus:outline-none focus:border-green-500/50"
+        />
       </div>
 
       {/* Max tokens */}
