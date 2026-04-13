@@ -1,5 +1,7 @@
 export type CompressionLayer = 'cleaner' | 'truncator' | 'chunker' | 'cache'
 
+export type Provider = 'anthropic' | 'openai'
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -32,7 +34,7 @@ export interface TurnMetrics {
 export interface SessionMetrics {
   totalOriginalTokens: number
   totalCompressedTokens: number
-  totalSavings: number          // percentage
+  totalSavings: number
   totalSavingsUsd: number
   totalCo2SavedGrams: number
   totalWaterSavedMl: number
@@ -43,22 +45,21 @@ export interface SessionMetrics {
 export interface CompressionPolicy {
   layers: Record<CompressionLayer, boolean>
   aggressiveness: 'conservative' | 'balanced' | 'maximum'
-  protectedTurns: number        // last N turns always intact
-  whitelistPatterns: string[]   // regex patterns never compressed
+  protectedTurns: number
+  whitelistPatterns: string[]
 }
 
-export interface AnthropicConfig {
+export interface LLMConfig {
+  provider: Provider
   model: string
   maxTokens: number
   systemPrompt: string
 }
 
-export type SafeAnthropicConfig = AnthropicConfig  // no secrets to strip
-
 export interface SessionExport {
   version: string
   exportedAt: string
-  config: SafeAnthropicConfig  // apiKey is never exported
+  config: LLMConfig
   policy: CompressionPolicy
   metrics: SessionMetrics
   messages: Message[]

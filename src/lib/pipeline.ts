@@ -1,4 +1,4 @@
-import type { Message, CompressionPolicy, CompressionResult, CompressionLayer } from '../types'
+import type { Message, CompressionPolicy, CompressionResult, CompressionLayer, Provider } from '../types'
 import { applyCleanerLayer }   from './compression/cleaner'
 import { applyTruncatorLayer } from './compression/truncator'
 import { applyChunkerLayer }   from './compression/chunker'
@@ -17,6 +17,8 @@ function detectRisk(original: Message[], compressed: Message[], savings: number)
 export function runPipeline(
   messages: Message[],
   policy: CompressionPolicy,
+  model: string,
+  provider: Provider,
   latestUserMessage = '',
 ): CompressionResult {
   const originalTokens = countMessagesTokens(messages)
@@ -35,7 +37,8 @@ export function runPipeline(
     result = applyChunkerLayer(result, latestUserMessage)
     layersApplied.push('chunker')
   }
-  if (policy.layers.cache) {
+  // Cache layer only works with Anthropic prompt caching
+  if (policy.layers.cache && provider === 'anthropic') {
     result = applyCacheLayer(result)
     layersApplied.push('cache')
   }
@@ -50,9 +53,9 @@ export function runPipeline(
     originalTokens,
     compressedTokens,
     savings,
-    savingsUsd:      estimateCost(savedTokens),
-    co2SavedGrams:   estimateCO2Grams(savedTokens),
-    waterSavedMl:    estimateWaterMl(savedTokens),
+    savingsUsd:    estimateCost(savedTokens, model),
+    co2SavedGrams: estimateCO2Grams(savedTokens),
+    waterSavedMl:  estimateWaterMl(savedTokens),
     layersApplied,
     riskLevel: detectRisk(messages, result, savings),
   }

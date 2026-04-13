@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import type { CompressionResult } from '../types'
 import { useSession } from '../store/session'
 import { runPipeline } from '../lib/pipeline'
-import { callAnthropic } from '../lib/anthropic'
+import { callLLM } from '../lib/llm'
 import BeforeAfter from './BeforeAfter'
 
 export default function Chat() {
@@ -14,7 +14,7 @@ export default function Chat() {
   const {
     messages, isLoading, error,
     policy, config,
-    addMessage, updateLastMessage, recordTurn,
+    addMessage, recordTurn,
     setLoading, setError, setLastCompression,
   } = useSession()
 
@@ -29,29 +29,23 @@ export default function Chat() {
     setInput('')
     setError(null)
 
-    // Add user message to history
     const userMsg = addMessage({ role: 'user', content: text })
 
-    // Build context (system + history + new user msg)
     const contextMessages = [
-      ...(config.systemPrompt ? [{ id: 'sys', role: 'system' as const, content: config.systemPrompt, timestamp: 0 }] : []),
+      ...(config.systemPrompt
+        ? [{ id: 'sys', role: 'system' as const, content: config.systemPrompt, timestamp: 0 }]
+        : []),
       ...messages,
       userMsg,
     ]
 
-    // Run compression pipeline
-    const compression = runPipeline(contextMessages, policy, text)
+    const compression = runPipeline(contextMessages, policy, config.model, config.provider, text)
     setPendingCompression(compression)
     setLastCompression(compression)
 
     setLoading(true)
     try {
-      const response = await callAnthropic(
-        config.model,
-        config.maxTokens,
-        compression.compressed,
-      )
-
+      const response = await callLLM(config.provider, config.model, config.maxTokens, compression.compressed)
       addMessage({ role: 'assistant', content: response.text })
       recordTurn(compression)
     } catch (err) {
@@ -69,7 +63,6 @@ export default function Chat() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 p-4">
         {conversationMessages.length === 0 && (
           <div className="flex items-center justify-center h-full">
@@ -116,17 +109,12 @@ export default function Chat() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Compression preview */}
       {pendingCompression && showPreview && (
         <div className="px-4 pb-2">
-          <BeforeAfter
-            compression={pendingCompression}
-            onClose={() => setShowPreview(false)}
-          />
+          <BeforeAfter compression={pendingCompression} onClose={() => setShowPreview(false)} />
         </div>
       )}
 
-      {/* Input */}
       <div className="border-t border-gray-800 p-4">
         <div className="flex gap-2 items-end">
           <textarea
@@ -149,17 +137,11 @@ export default function Chat() {
             SEND
           </button>
         </div>
-        <div className="flex gap-3 mt-2">
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showPreview}
-              onChange={e => setShowPreview(e.target.checked)}
-              className="accent-green-500"
-            />
-            <span className="text-xs text-gray-500">show compression preview</span>
-          </label>
-        </div>
+        <label className="flex items-center gap-1.5 cursor-pointer mt-2">
+          <input type="checkbox" checked={showPreview}
+            onChange={e => setShowPreview(e.target.checked)} className="accent-green-500" />
+          <span className="text-xs text-gray-500">show compression preview</span>
+        </label>
       </div>
     </div>
   )

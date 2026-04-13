@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type {
   Message, SessionMetrics, CompressionPolicy,
-  AnthropicConfig, TurnMetrics, CompressionResult, SessionExport,
+  LLMConfig, TurnMetrics, CompressionResult, SessionExport,
 } from '../types'
 
 const DEFAULT_POLICY: CompressionPolicy = {
@@ -11,28 +11,29 @@ const DEFAULT_POLICY: CompressionPolicy = {
   whitelistPatterns: ['```[\\s\\S]*?```', '\\{[\\s\\S]*?\\}'],
 }
 
-const DEFAULT_CONFIG: AnthropicConfig = {
-  model: 'claude-sonnet-4-5-20251001',
-  maxTokens: 4096,
+const DEFAULT_CONFIG: LLMConfig = {
+  provider:     'anthropic',
+  model:        'claude-sonnet-4-5-20251001',
+  maxTokens:    4096,
   systemPrompt: 'You are a helpful assistant.',
 }
 
 const EMPTY_METRICS = (): SessionMetrics => ({
-  totalOriginalTokens: 0,
+  totalOriginalTokens:   0,
   totalCompressedTokens: 0,
-  totalSavings: 0,
-  totalSavingsUsd: 0,
-  totalCo2SavedGrams: 0,
-  totalWaterSavedMl: 0,
-  turns: [],
-  startedAt: Date.now(),
+  totalSavings:          0,
+  totalSavingsUsd:       0,
+  totalCo2SavedGrams:    0,
+  totalWaterSavedMl:     0,
+  turns:                 [],
+  startedAt:             Date.now(),
 })
 
 interface SessionState {
   messages:        Message[]
   metrics:         SessionMetrics
   policy:          CompressionPolicy
-  config:          AnthropicConfig
+  config:          LLMConfig
   lastCompression: CompressionResult | null
   isLoading:       boolean
   error:           string | null
@@ -41,7 +42,7 @@ interface SessionState {
   updateLastMessage:  (content: string) => void
   recordTurn:         (compression: CompressionResult) => void
   setPolicy:          (p: Partial<CompressionPolicy>) => void
-  setConfig:          (c: Partial<AnthropicConfig>) => void
+  setConfig:          (c: Partial<LLMConfig>) => void
   setLastCompression: (r: CompressionResult) => void
   setLoading:         (v: boolean) => void
   setError:           (e: string | null) => void
@@ -96,9 +97,9 @@ export const useSession = create<SessionState>((set, get) => ({
           totalOriginalTokens:   totalOrig,
           totalCompressedTokens: totalComp,
           totalSavings:          totalOrig > 0 ? (saved / totalOrig) * 100 : 0,
-          totalSavingsUsd:       s.metrics.totalSavingsUsd     + compression.savingsUsd,
-          totalCo2SavedGrams:    s.metrics.totalCo2SavedGrams  + compression.co2SavedGrams,
-          totalWaterSavedMl:     s.metrics.totalWaterSavedMl   + compression.waterSavedMl,
+          totalSavingsUsd:       s.metrics.totalSavingsUsd    + compression.savingsUsd,
+          totalCo2SavedGrams:    s.metrics.totalCo2SavedGrams + compression.co2SavedGrams,
+          totalWaterSavedMl:     s.metrics.totalWaterSavedMl  + compression.waterSavedMl,
           turns: [...s.metrics.turns, turn],
         },
       }
