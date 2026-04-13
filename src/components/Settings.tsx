@@ -5,28 +5,102 @@ interface Props {
   onChange: (c: Partial<LLMConfig>) => void
 }
 
-const PROVIDERS: Array<{ id: Provider; label: string; keyName: string }> = [
-  { id: 'anthropic', label: 'Anthropic', keyName: 'ANTHROPIC_API_KEY' },
-  { id: 'openai',    label: 'OpenAI',    keyName: 'OPENAI_API_KEY'    },
-]
-
-const MODELS: Record<Provider, Array<{ id: string; label: string }>> = {
-  anthropic: [
-    { id: 'claude-sonnet-4-5-20251001', label: 'Claude Sonnet 4.5  — $3/MTok' },
-    { id: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5   — $0.8/MTok' },
-    { id: 'claude-opus-4-6',            label: 'Claude Opus 4.6    — $15/MTok' },
-  ],
-  openai: [
-    { id: 'gpt-4o',      label: 'GPT-4o          — $2.5/MTok' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o mini     — $0.15/MTok' },
-    { id: 'o3-mini',     label: 'o3-mini         — $1.1/MTok'  },
-    { id: 'gpt-4-turbo', label: 'GPT-4 Turbo     — $10/MTok'  },
-  ],
+interface ProviderDef {
+  id: Provider
+  label: string
+  badge?: string
+  models: Array<{ id: string; label: string }>
 }
 
+const PROVIDERS: ProviderDef[] = [
+  {
+    id: 'anthropic', label: 'Anthropic', badge: 'caching',
+    models: [
+      { id: 'claude-sonnet-4-5-20251001', label: 'Claude Sonnet 4.5  $3/MTok' },
+      { id: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5   $0.8/MTok' },
+      { id: 'claude-opus-4-6',            label: 'Claude Opus 4.6    $15/MTok' },
+    ],
+  },
+  {
+    id: 'openai', label: 'OpenAI',
+    models: [
+      { id: 'gpt-4o',      label: 'GPT-4o           $2.5/MTok' },
+      { id: 'gpt-4o-mini', label: 'GPT-4o mini      $0.15/MTok' },
+      { id: 'o3-mini',     label: 'o3-mini          $1.1/MTok' },
+      { id: 'gpt-4-turbo', label: 'GPT-4 Turbo      $10/MTok' },
+    ],
+  },
+  {
+    id: 'google', label: 'Google',
+    models: [
+      { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash  $0.10/MTok' },
+      { id: 'gemini-1.5-pro',   label: 'Gemini 1.5 Pro    $1.25/MTok' },
+      { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash  $0.075/MTok' },
+    ],
+  },
+  {
+    id: 'mistral', label: 'Mistral',
+    models: [
+      { id: 'mistral-large-latest', label: 'Mistral Large   $2/MTok' },
+      { id: 'mistral-small-latest', label: 'Mistral Small   $0.10/MTok' },
+      { id: 'codestral-latest',     label: 'Codestral       $0.20/MTok' },
+    ],
+  },
+  {
+    id: 'groq', label: 'Groq', badge: 'fast',
+    models: [
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B   $0.59/MTok' },
+      { id: 'llama-3.1-8b-instant',    label: 'Llama 3.1 8B    $0.05/MTok' },
+      { id: 'mixtral-8x7b-32768',      label: 'Mixtral 8x7B    $0.24/MTok' },
+    ],
+  },
+  {
+    id: 'together', label: 'Together',
+    models: [
+      { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',    label: 'Llama 3.3 70B   $0.88/MTok' },
+      { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',label: 'Llama 3.1 8B    $0.18/MTok' },
+      { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1',        label: 'Mixtral 8x7B    $0.60/MTok' },
+    ],
+  },
+  {
+    id: 'perplexity', label: 'Perplexity',
+    models: [
+      { id: 'sonar-pro',       label: 'Sonar Pro       $3/MTok' },
+      { id: 'sonar',           label: 'Sonar           $1/MTok' },
+      { id: 'sonar-reasoning', label: 'Sonar Reasoning $1/MTok' },
+    ],
+  },
+  {
+    id: 'xai', label: 'xAI',
+    models: [
+      { id: 'grok-3',      label: 'Grok 3       $3/MTok' },
+      { id: 'grok-3-mini', label: 'Grok 3 mini  $0.30/MTok' },
+      { id: 'grok-2',      label: 'Grok 2       $2/MTok' },
+    ],
+  },
+  {
+    id: 'deepseek', label: 'DeepSeek',
+    models: [
+      { id: 'deepseek-chat',     label: 'DeepSeek V3  $0.27/MTok' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek R1  $0.55/MTok' },
+    ],
+  },
+  {
+    id: 'cohere', label: 'Cohere',
+    models: [
+      { id: 'command-a-03-2025', label: 'Command A    $2.5/MTok' },
+      { id: 'command-r-plus',    label: 'Command R+   $2.5/MTok' },
+      { id: 'command-r',         label: 'Command R    $0.15/MTok' },
+    ],
+  },
+]
+
 export default function Settings({ config, onChange }: Props) {
+  const current = PROVIDERS.find(p => p.id === config.provider) ?? PROVIDERS[0]
+
   function handleProviderChange(provider: Provider) {
-    onChange({ provider, model: MODELS[provider][0].id })
+    const models = PROVIDERS.find(p => p.id === provider)?.models ?? []
+    onChange({ provider, model: models[0]?.id ?? '' })
   }
 
   return (
@@ -36,34 +110,40 @@ export default function Settings({ config, onChange }: Props) {
       {/* Security notice */}
       <div className="border border-green-500/20 bg-green-500/5 rounded p-3 text-xs text-gray-400 space-y-1">
         <div className="text-green-400 font-semibold">KEYS — SERVER SIDE ONLY</div>
-        <div>API keys are read from <code className="text-green-300">.env</code> by <code className="text-green-300">proxy.mjs</code>.</div>
-        <div>They never reach the browser. No credentials in client requests.</div>
-        <div className="mt-1 text-gray-600">Start proxy: <code className="text-gray-400">node proxy.mjs</code></div>
+        <div>Keys are read from <code className="text-green-300">.env</code> by <code className="text-green-300">proxy.mjs</code> — never sent to the browser.</div>
+        <div className="text-gray-600 mt-1">Start: <code className="text-gray-400">node proxy.mjs</code></div>
       </div>
 
-      {/* Provider selector */}
+      {/* Provider grid */}
       <div>
         <div className="text-xs text-gray-500 mb-2">PROVIDER</div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-5 gap-1.5">
           {PROVIDERS.map(p => (
             <button
               key={p.id}
               onClick={() => handleProviderChange(p.id)}
-              className={`flex-1 py-2 px-3 text-xs font-mono rounded border transition-colors
+              className={`py-1.5 px-1 text-xs font-mono rounded border transition-colors relative
                 ${config.provider === p.id
                   ? 'bg-green-500/20 border-green-500/50 text-green-400'
-                  : 'bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-500'}`}
+                  : 'bg-gray-800/60 border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-400'}`}
             >
               {p.label}
-              <div className={`text-xs mt-0.5 ${config.provider === p.id ? 'text-green-600' : 'text-gray-700'}`}>
-                {p.keyName}
-              </div>
+              {p.badge && (
+                <span className="absolute -top-1.5 -right-1 text-[9px] bg-purple-500/30 text-purple-300 px-1 rounded">
+                  {p.badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
         {config.provider === 'anthropic' && (
           <p className="text-xs text-purple-400/70 mt-1.5">
             ✦ Prompt caching active — system prompts reused at 10% cost
+          </p>
+        )}
+        {config.provider === 'groq' && (
+          <p className="text-xs text-yellow-400/70 mt-1.5">
+            ⚡ Groq runs on custom LPU hardware — lowest latency available
           </p>
         )}
       </div>
@@ -77,7 +157,7 @@ export default function Settings({ config, onChange }: Props) {
           className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2
             text-sm font-mono text-gray-100 focus:outline-none focus:border-green-500/50"
         >
-          {MODELS[config.provider].map(m => (
+          {current.models.map(m => (
             <option key={m.id} value={m.id}>{m.label}</option>
           ))}
         </select>
@@ -106,9 +186,11 @@ export default function Settings({ config, onChange }: Props) {
           className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2
             text-sm font-mono text-gray-100 focus:outline-none focus:border-green-500/50 resize-none"
         />
-        <p className="text-xs text-gray-600 mt-1">
-          Keep this identical across calls to maximise cache hit rate (Anthropic only).
-        </p>
+        {config.provider === 'anthropic' && (
+          <p className="text-xs text-gray-600 mt-1">
+            Keep identical across calls for maximum cache hit rate.
+          </p>
+        )}
       </div>
     </div>
   )

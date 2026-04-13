@@ -1,6 +1,16 @@
 export type CompressionLayer = 'cleaner' | 'truncator' | 'chunker' | 'cache'
 
-export type Provider = 'anthropic' | 'openai'
+export type Provider =
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'mistral'
+  | 'groq'
+  | 'together'
+  | 'perplexity'
+  | 'xai'
+  | 'deepseek'
+  | 'cohere'
 
 export interface Message {
   id: string
