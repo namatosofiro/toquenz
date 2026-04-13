@@ -217,6 +217,24 @@ newprovider: {
 
 ---
 
+## Why Anthropic alignment matters
+
+Toquenz is not just a cost tool — it's structurally aligned with how Anthropic frames its own mission: *"AI for the long-term benefit of humanity."*
+
+A tool that reduces the environmental footprint of every API call — on Claude and beyond — is the kind of infrastructure that benefits the ecosystem, not just one vendor. That alignment opens doors: documentation features, research collaborations, API credit programmes for impact projects, and native integrations.
+
+The same logic applies to any provider that takes sustainability seriously. Toquenz gives them a credible, auditable, open-source way to demonstrate it.
+
+---
+
+## Built by
+
+Toquenz is a project by **[Eter Growth](https://etergrowth.com)** — a digital transition consultancy focused on cybersecurity, compliance and responsible AI adoption.
+
+The compression pipeline is open source (MIT) and provider-agnostic. The commercial layer — hosted dashboard, ESG PDF reports, and EterShield GRC integration — is under development.
+
+---
+
 ## Roadmap
 
 - [ ] CLI / npm library (`npx toquenz`)
@@ -225,6 +243,7 @@ newprovider: {
 - [ ] ESG report export (PDF) for EU AI Act / corporate sustainability reporting
 - [ ] EterShield integration — consolidated AI cost and environmental reporting for GRC platforms
 - [ ] Browser extension
+- [ ] Anthropic docs feature / partner programme submission
 
 ---
 
