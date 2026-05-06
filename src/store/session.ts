@@ -3,6 +3,8 @@ import type {
   Message, SessionMetrics, CompressionPolicy,
   LLMConfig, TurnMetrics, CompressionResult, SessionExport,
 } from '../types'
+import { estimateCost } from '../lib/metrics'
+import type { LLMResponse } from '../lib/llm'
 
 const DEFAULT_POLICY: CompressionPolicy = {
   layers: { cleaner: true, truncator: true, chunker: true, cache: true },
@@ -19,14 +21,19 @@ const DEFAULT_CONFIG: LLMConfig = {
 }
 
 const EMPTY_METRICS = (): SessionMetrics => ({
-  totalOriginalTokens:   0,
-  totalCompressedTokens: 0,
-  totalSavings:          0,
-  totalSavingsUsd:       0,
-  totalCo2SavedGrams:    0,
-  totalWaterSavedMl:     0,
-  turns:                 [],
-  startedAt:             Date.now(),
+  totalOriginalTokens:    0,
+  totalCompressedTokens:  0,
+  totalSavings:           0,
+  totalSavingsUsd:        0,
+  totalCo2SavedGrams:     0,
+  totalWaterSavedMl:      0,
+  totalActualInputTokens: 0,
+  totalOutputTokens:      0,
+  totalCacheReadTokens:   0,
+  totalActualCostUsd:     0,
+  totalOutputCostUsd:     0,
+  turns:                  [],
+  startedAt:              Date.now(),
 })
 
 interface SessionState {
@@ -40,7 +47,7 @@ interface SessionState {
 
   addMessage:         (msg: Omit<Message, 'id' | 'timestamp'>) => Message
   updateLastMessage:  (content: string) => void
-  recordTurn:         (compression: CompressionResult) => void
+  recordTurn:         (compression: CompressionResult, response: LLMResponse) => void
   setPolicy:          (p: Partial<CompressionPolicy>) => void
   setConfig:          (c: Partial<LLMConfig>) => void
   setLastCompression: (r: CompressionResult) => void
@@ -78,28 +85,44 @@ export const useSession = create<SessionState>((set, get) => ({
     })
   },
 
-  recordTurn: (compression) => {
+  recordTurn: (compression, response) => {
     set(s => {
+      const model             = s.config.model
+      const actualInputCost   = estimateCost(response.inputTokens, model, false)
+      const outputCost        = estimateCost(response.outputTokens, model, true)
+
       const turn: TurnMetrics = {
-        turn:             s.metrics.turns.length + 1,
-        originalTokens:   compression.originalTokens,
-        compressedTokens: compression.compressedTokens,
-        savings:          compression.savings,
-        timestamp:        Date.now(),
+        turn:               s.metrics.turns.length + 1,
+        originalTokens:     compression.originalTokens,
+        compressedTokens:   compression.compressedTokens,
+        savings:            compression.savings,
+        timestamp:          Date.now(),
+        actualInputTokens:  response.inputTokens,
+        actualOutputTokens: response.outputTokens,
+        cacheReadTokens:    response.cacheReadTokens,
+        actualInputCostUsd: actualInputCost,
+        outputCostUsd:      outputCost,
       }
+
       const totalOrig = s.metrics.totalOriginalTokens   + compression.originalTokens
       const totalComp = s.metrics.totalCompressedTokens + compression.compressedTokens
       const saved     = Math.max(0, totalOrig - totalComp)
+
       return {
         lastCompression: compression,
         metrics: {
           ...s.metrics,
-          totalOriginalTokens:   totalOrig,
-          totalCompressedTokens: totalComp,
-          totalSavings:          totalOrig > 0 ? (saved / totalOrig) * 100 : 0,
-          totalSavingsUsd:       s.metrics.totalSavingsUsd    + compression.savingsUsd,
-          totalCo2SavedGrams:    s.metrics.totalCo2SavedGrams + compression.co2SavedGrams,
-          totalWaterSavedMl:     s.metrics.totalWaterSavedMl  + compression.waterSavedMl,
+          totalOriginalTokens:    totalOrig,
+          totalCompressedTokens:  totalComp,
+          totalSavings:           totalOrig > 0 ? (saved / totalOrig) * 100 : 0,
+          totalSavingsUsd:        s.metrics.totalSavingsUsd    + compression.savingsUsd,
+          totalCo2SavedGrams:     s.metrics.totalCo2SavedGrams + compression.co2SavedGrams,
+          totalWaterSavedMl:      s.metrics.totalWaterSavedMl  + compression.waterSavedMl,
+          totalActualInputTokens: s.metrics.totalActualInputTokens + response.inputTokens,
+          totalOutputTokens:      s.metrics.totalOutputTokens      + response.outputTokens,
+          totalCacheReadTokens:   s.metrics.totalCacheReadTokens   + response.cacheReadTokens,
+          totalActualCostUsd:     s.metrics.totalActualCostUsd     + actualInputCost,
+          totalOutputCostUsd:     s.metrics.totalOutputCostUsd     + outputCost,
           turns: [...s.metrics.turns, turn],
         },
       }

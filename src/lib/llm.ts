@@ -1,4 +1,31 @@
-import type { Message, Provider } from '../types'
+import type { Message, Provider, Attachment } from '../types'
+
+// Providers that support vision / image inputs
+const VISION_PROVIDERS: Provider[] = ['anthropic', 'openai', 'google']
+
+function buildOpenAIContent(text: string, attachments?: Attachment[]): string | unknown[] {
+  const images = attachments?.filter(a => a.type === 'image') ?? []
+  if (images.length === 0) return text
+  return [
+    ...images.map(a => ({
+      type: 'image_url',
+      image_url: { url: `data:${a.mimeType};base64,${a.data}` },
+    })),
+    { type: 'text', text },
+  ]
+}
+
+function buildAnthropicContent(text: string, attachments?: Attachment[]): string | unknown[] {
+  const images = attachments?.filter(a => a.type === 'image') ?? []
+  if (images.length === 0) return text
+  return [
+    ...images.map(a => ({
+      type: 'image',
+      source: { type: 'base64', media_type: a.mimeType, data: a.data },
+    })),
+    { type: 'text', text },
+  ]
+}
 
 export interface LLMResponse {
   text: string
@@ -76,6 +103,7 @@ async function callOpenAICompatible(
   maxTokens: number,
   messages: Message[],
 ): Promise<LLMResponse> {
+  const supportsVision = VISION_PROVIDERS.includes(provider as Provider)
   const path = OAI_PATH[provider] ?? '/v1/chat/completions'
   const res  = await fetch(`/${provider}${path}`, {
     method:  'POST',
@@ -83,7 +111,12 @@ async function callOpenAICompatible(
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      messages: messages.map(m => ({
+        role: m.role,
+        content: supportsVision
+          ? buildOpenAIContent(m.content, m.attachments)
+          : m.content,
+      })),
     }),
   })
 
@@ -129,7 +162,10 @@ async function callAnthropic(model: string, maxTokens: number, messages: Message
     },
     body: JSON.stringify({
       model, max_tokens: maxTokens, system,
-      messages: convo.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      messages: convo.map(m => ({
+        role:    m.role as 'user' | 'assistant',
+        content: buildAnthropicContent(m.content, m.attachments),
+      })),
     }),
   })
 
@@ -147,7 +183,7 @@ async function callAnthropic(model: string, maxTokens: number, messages: Message
 // ── Google Gemini ────────────────────────────────────────────────────────────
 // Gemini uses a different message format and endpoint structure.
 
-interface GeminiPart   { text: string }
+interface GeminiPart    { text?: string; inlineData?: { mimeType: string; data: string } }
 interface GeminiContent { role: 'user' | 'model'; parts: GeminiPart[] }
 
 function toGeminiRole(role: string): 'user' | 'model' {
@@ -158,10 +194,14 @@ async function callGoogle(model: string, maxTokens: number, messages: Message[])
   const systemMsgs = messages.filter(m => m.role === 'system')
   const convo      = messages.filter(m => m.role !== 'system')
 
-  const contents: GeminiContent[] = convo.map(m => ({
-    role:  toGeminiRole(m.role),
-    parts: [{ text: m.content }],
-  }))
+  const contents: GeminiContent[] = convo.map(m => {
+    const parts: GeminiPart[] = []
+    for (const att of m.attachments ?? []) {
+      if (att.type === 'image') parts.push({ inlineData: { mimeType: att.mimeType, data: att.data } })
+    }
+    parts.push({ text: m.content })
+    return { role: toGeminiRole(m.role), parts }
+  })
 
   const systemInstruction = systemMsgs.length > 0
     ? { parts: [{ text: systemMsgs.map(m => m.content).join('\n\n') }] }

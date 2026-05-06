@@ -12,12 +12,20 @@ export type Provider =
   | 'deepseek'
   | 'cohere'
 
+export interface Attachment {
+  name: string
+  mimeType: string
+  data: string    // base64 for images, raw text for text files
+  type: 'image' | 'text'
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
   tokenCount?: number
+  attachments?: Attachment[]
 }
 
 export interface CompressionResult {
@@ -39,6 +47,12 @@ export interface TurnMetrics {
   compressedTokens: number
   savings: number
   timestamp: number
+  // Tokens reported by the API (actual consumption)
+  actualInputTokens: number
+  actualOutputTokens: number
+  cacheReadTokens: number
+  actualInputCostUsd: number
+  outputCostUsd: number
 }
 
 export interface SessionMetrics {
@@ -48,6 +62,12 @@ export interface SessionMetrics {
   totalSavingsUsd: number
   totalCo2SavedGrams: number
   totalWaterSavedMl: number
+  // Actual API-reported consumption
+  totalActualInputTokens: number
+  totalOutputTokens: number
+  totalCacheReadTokens: number
+  totalActualCostUsd: number
+  totalOutputCostUsd: number
   turns: TurnMetrics[]
   startedAt: number
 }
