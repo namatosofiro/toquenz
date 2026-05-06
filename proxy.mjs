@@ -14,6 +14,7 @@
  *   cohere     → api.cohere.com             (OpenAI-compatible)
  *
  * Route pattern: POST /{provider}/{upstream-path}
+ * Special route: POST /compress  → token compression (truncator + chunker)
  * API keys are read from .env — never from the client.
  */
 
@@ -35,7 +36,8 @@ if (existsSync(envPath)) {
   }
 }
 
-const PORT = Number(process.env.PROXY_PORT ?? 3333)
+const PORT   = Number(process.env.PROXY_PORT ?? 3333)
+const SECRET = process.env.TOQUENZ_SECRET ?? ''
 
 // ── Provider config ──────────────────────────────────────────────────────────
 const PROVIDERS = {
@@ -125,6 +127,131 @@ if (!anyKey) {
   process.exit(1)
 }
 
+// ── Compression helpers (mirrors src/lib/compression/) ───────────────────────
+
+function countTokensApprox(text) {
+  return Math.ceil(text.length / 4)
+}
+
+function isCritical(msg) {
+  return /```[\s\S]*?```|^\s*[\[{]|CRITICAL|IMPORTANT|ERROR/i.test(msg.content)
+}
+
+function summarizeTurnPair(user, assistant) {
+  const uShort = user.content.slice(0, 120).replace(/\n/g, ' ')
+  const aShort = assistant.content.slice(0, 200).replace(/\n/g, ' ')
+  return {
+    role: 'user',
+    content: `[Summary] Q: "${uShort}${user.content.length > 120 ? '…' : ''}" A: "${aShort}${assistant.content.length > 200 ? '…' : ''}"`,
+  }
+}
+
+function applyTruncator(messages, policy) {
+  const { aggressiveness = 'balanced', protectedTurns = 4 } = policy ?? {}
+  const system = messages.filter(m => m.role === 'system')
+  const convo  = messages.filter(m => m.role !== 'system')
+
+  const keepFraction = aggressiveness === 'maximum' ? 0.5
+    : aggressiveness === 'balanced' ? 0.65
+    : 0.8
+
+  const protectCount  = protectedTurns * 2
+  const compressible  = convo.length - protectCount
+  if (compressible <= 0) return messages
+
+  const compressUntil = Math.floor(compressible * (1 - keepFraction))
+  const toCompress    = convo.slice(0, compressUntil)
+  const toKeep        = convo.slice(compressUntil)
+
+  const summaries = []
+  for (let i = 0; i < toCompress.length - 1; i += 2) {
+    const u = toCompress[i]
+    const a = toCompress[i + 1]
+    if (!a) break
+    if (isCritical(u) || isCritical(a)) {
+      summaries.push(u, a)
+    } else {
+      summaries.push(summarizeTurnPair(u, a))
+    }
+  }
+
+  return [...system, ...summaries, ...toKeep]
+}
+
+function tokenize(text) {
+  return text.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(t => t.length > 2)
+}
+
+function applyChunker(messages, query) {
+  if (!query) return messages
+  const queryTokens = tokenize(query)
+  if (queryTokens.length === 0) return messages
+
+  return messages.map(msg => {
+    if (msg.role !== 'user' || msg.content.length < 500) return msg
+    const chunks = msg.content.split(/\n{2,}/).filter(c => c.trim().length > 0)
+    if (chunks.length < 3) return msg
+
+    const chunkTokens = chunks.map(tokenize)
+    const N = chunks.length
+    const docFreq = {}
+    for (const chunk of chunkTokens) {
+      for (const term of new Set(chunk)) docFreq[term] = (docFreq[term] ?? 0) + 1
+    }
+
+    const scores = chunkTokens.map(chunk => {
+      const tf = {}
+      for (const t of chunk) tf[t] = (tf[t] ?? 0) + 1
+      return queryTokens.reduce((score, term) => {
+        if (!tf[term]) return score
+        return score + (tf[term] / chunk.length) * Math.log(N / (1 + (docFreq[term] ?? 0)))
+      }, 0)
+    })
+
+    const sorted = [...scores].sort((a, b) => b - a)
+    const cutoff = sorted[Math.floor(N * 0.4)] ?? 0
+    const relevant = chunks.filter((_, i) => scores[i] >= cutoff)
+    if (relevant.length === chunks.length) return msg
+
+    return {
+      ...msg,
+      content: relevant.join('\n\n')
+        + `\n\n[${chunks.length - relevant.length} section(s) omitted by Toquenz — low relevance to query]`,
+    }
+  })
+}
+
+function handleCompress(body, res) {
+  const { messages, policy, query } = body
+  if (!Array.isArray(messages)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'messages must be an array' }))
+    return
+  }
+
+  const originalTokens = messages.reduce((n, m) => n + countTokensApprox(m.content ?? ''), 0)
+
+  let result = applyTruncator(messages, policy)
+  result = applyChunker(result, query)
+
+  const compressedTokens = result.reduce((n, m) => n + countTokensApprox(m.content ?? ''), 0)
+  const saved = originalTokens - compressedTokens
+  const reduction = originalTokens > 0 ? ((saved / originalTokens) * 100).toFixed(1) : '0.0'
+
+  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({
+    messages: result,
+    stats: {
+      originalMessages: messages.length,
+      compressedMessages: result.length,
+      originalTokens,
+      compressedTokens,
+      savedTokens: saved,
+      reductionPercent: Number(reduction),
+    },
+  }))
+}
+
 // ── Server ───────────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin',  'http://localhost:5173')
@@ -134,6 +261,30 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
   if (req.method !== 'POST')    { res.writeHead(405); res.end('Method Not Allowed'); return }
+
+  // ── Auth check (skip if SECRET not set — localhost-only mode) ────────────
+  if (SECRET) {
+    const token = req.headers['x-toquenz-token'] ?? ''
+    if (token !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
+      return
+    }
+  }
+
+  // ── /compress endpoint ────────────────────────────────────────────────────
+  if ((req.url ?? '/') === '/compress') {
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    try {
+      const body = JSON.parse(Buffer.concat(chunks).toString())
+      handleCompress(body, res)
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+    }
+    return
+  }
 
   // Extract provider from path prefix: /{provider}/{rest}
   const url   = req.url ?? '/'

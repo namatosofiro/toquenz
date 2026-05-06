@@ -53,11 +53,14 @@ For companies subject to the **EU AI Act** or **ESG reporting requirements**, th
 - **4-layer compression pipeline** — each layer toggle-able independently
 - **10 LLM providers** out of the box — add more in minutes
 - **Real-time metrics** — tokens, cost (USD), CO₂ (grams), water (mL) per session
+- **Accurate token counting** — tiktoken WASM (cl100k\_base) in the browser
 - **Before/after preview** — see exactly what gets sent before each call
 - **Risk indicator** — green/yellow/red compression risk per turn
+- **Standalone `/compress` endpoint** — use the pipeline without the UI, from any language
 - **Provider-agnostic** — same pipeline, any API
 - **Free-text model ID** — use any model, including ones released after this README
 - **Secure proxy** — API keys stay server-side, zero credentials in browser
+- **Optional auth** — `TOQUENZ_SECRET` for VPS deployments
 - **Session export** — full JSON report with environmental impact data
 - **Open source MIT** — auditable, no telemetry, no lock-in
 
@@ -111,6 +114,9 @@ PERPLEXITY_API_KEY=pplx-...
 XAI_API_KEY=xai-...
 DEEPSEEK_API_KEY=...
 COHERE_API_KEY=...
+
+PROXY_PORT=3333
+TOQUENZ_SECRET=   # optional — see Security model
 ```
 
 ### 3. Start
@@ -134,6 +140,65 @@ Browser  ───────────────────────�
 
 API keys live in `.env` and are read at proxy startup. The browser sends zero credentials — every request is unauthenticated at the client level. The proxy listens on `127.0.0.1` only.
 
+**VPS / remote deployments:** set `TOQUENZ_SECRET` to a random token (generate with `openssl rand -hex 32`). All requests must then include the header:
+
+```
+X-Toquenz-Token: <your-secret>
+```
+
+Without `TOQUENZ_SECRET`, authentication is disabled and the proxy only accepts localhost connections.
+
+---
+
+## Standalone `/compress` endpoint
+
+The compression pipeline is also available as an HTTP endpoint — no UI required. Useful for integrating Toquenz into your own application or CI pipeline.
+
+```bash
+curl -s http://127.0.0.1:3333/compress \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "..."},
+      {"role": "assistant", "content": "..."}
+    ],
+    "policy": {
+      "aggressiveness": "balanced",
+      "protectedTurns": 2
+    },
+    "query": "next question (activates TF-IDF chunker)"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "messages": [ "...compressed..." ],
+  "stats": {
+    "originalMessages": 10,
+    "compressedMessages": 6,
+    "originalTokens": 1200,
+    "compressedTokens": 780,
+    "savedTokens": 420,
+    "reductionPercent": 35.0
+  }
+}
+```
+
+**Policy options:**
+
+| Field | Values | Default |
+|-------|--------|---------|
+| `aggressiveness` | `conservative` · `balanced` · `maximum` | `balanced` |
+| `protectedTurns` | integer | `4` |
+
+**Route Claude Code through Toquenz** (redirect all CLI sessions via proxy):
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:3333/anthropic
+```
+
 ---
 
 ## Environmental metrics
@@ -152,14 +217,14 @@ These conversions apply to every provider — Groq LPUs, Google TPUs, AWS GPU cl
 
 ```
 toquenz/
-├── proxy.mjs                    # Multi-provider proxy (zero external dependencies)
+├── proxy.mjs                    # Multi-provider proxy + /compress endpoint (zero external deps)
 ├── .env / .env.example
 ├── MANUAL.md                    # Full user manual (PT)
 └── src/
     ├── types/index.ts           # Provider, Message, LLMConfig, CompressionResult
     ├── lib/
     │   ├── llm.ts               # callLLM() — dispatches to correct provider
-    │   ├── tokenizer.ts         # tiktoken WASM (cl100k_base)
+    │   ├── tokenizer.ts         # tiktoken WASM (cl100k_base) — accurate counts
     │   ├── metrics.ts           # Cost, CO₂, water — per model pricing
     │   ├── pipeline.ts          # 4-layer compression orchestrator
     │   └── compression/
@@ -167,11 +232,11 @@ toquenz/
     │       ├── truncator.ts     # Layer 2 — smart truncation
     │       ├── chunker.ts       # Layer 3 — TF-IDF relevance
     │       └── cache.ts         # Layer 4 — Anthropic prompt caching
-    ├── store/session.ts         # Zustand global state
+    ├── store/session.ts         # Zustand global state + session metrics
     └── components/
         ├── Chat.tsx
-        ├── BeforeAfter.tsx      # Compression preview
-        ├── MetricsDashboard.tsx # Metrics + recharts
+        ├── BeforeAfter.tsx      # Compression preview panel
+        ├── MetricsDashboard.tsx # Metrics + recharts charts
         ├── PolicyConfig.tsx
         ├── RiskIndicator.tsx
         └── Settings.tsx        # Provider grid + free-text model ID
