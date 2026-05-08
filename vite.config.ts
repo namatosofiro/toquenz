@@ -11,9 +11,13 @@ const PROVIDERS    = ['anthropic', 'openai', 'google', 'mistral', 'groq', 'toget
 export default defineConfig({
   plugins: [wasm(), topLevelAwait(), react()],
   server: {
-    proxy: Object.fromEntries(
-      PROVIDERS.map(p => [`/${p}`, { target: PROXY_TARGET, changeOrigin: false }])
-    ),
+    proxy: {
+      ...Object.fromEntries(
+        PROVIDERS.map(p => [`/${p}`, { target: PROXY_TARGET, changeOrigin: false }])
+      ),
+      '/analytics': { target: PROXY_TARGET, changeOrigin: false },
+      '/compress':  { target: PROXY_TARGET, changeOrigin: false },
+    },
   },
   optimizeDeps: {
     exclude: ['@dqbd/tiktoken'],

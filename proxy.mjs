@@ -19,7 +19,7 @@
  */
 
 import { createServer } from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, appendFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -36,8 +36,22 @@ if (existsSync(envPath)) {
   }
 }
 
-const PORT   = Number(process.env.PROXY_PORT ?? 3333)
-const SECRET = process.env.TOQUENZ_SECRET ?? ''
+const PORT            = Number(process.env.PROXY_PORT ?? 3333)
+const SECRET          = process.env.TOQUENZ_SECRET ?? ''
+const ANALYTICS_FILE  = join(__dir, 'analytics.jsonl')
+
+function logAnalyticsEntry(entry) {
+  try { appendFileSync(ANALYTICS_FILE, JSON.stringify(entry) + '\n', 'utf8') } catch { /* ignore */ }
+}
+
+function readAnalyticsEntries() {
+  if (!existsSync(ANALYTICS_FILE)) return []
+  return readFileSync(ANALYTICS_FILE, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map(l => { try { return JSON.parse(l) } catch { return null } })
+    .filter(Boolean)
+}
 
 // ── Provider config ──────────────────────────────────────────────────────────
 const PROVIDERS = {
@@ -255,21 +269,52 @@ function handleCompress(body, res) {
 // ── Server ───────────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin',  'http://localhost:5173')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers',
-    'Content-Type, anthropic-version, anthropic-beta')
+    'Content-Type, anthropic-version, anthropic-beta, x-toquenz-token')
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
-  if (req.method !== 'POST')    { res.writeHead(405); res.end('Method Not Allowed'); return }
 
-  // ── Auth check (skip if SECRET not set — localhost-only mode) ────────────
-  if (SECRET) {
-    const token = req.headers['x-toquenz-token'] ?? ''
-    if (token !== SECRET) {
+  // ── Auth helper ───────────────────────────────────────────────────────────
+  function checkAuth() {
+    if (!SECRET) return true
+    return req.headers['x-toquenz-token'] === SECRET
+  }
+
+  // ── GET /analytics — return stored entries ────────────────────────────────
+  if (req.method === 'GET' && req.url === '/analytics') {
+    if (!checkAuth()) {
       res.writeHead(401, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Unauthorized' }))
       return
     }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(readAnalyticsEntries()))
+    return
+  }
+
+  if (req.method !== 'POST') { res.writeHead(405); res.end('Method Not Allowed'); return }
+
+  // ── Auth check (POST routes) ──────────────────────────────────────────────
+  if (!checkAuth()) {
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
+
+  // ── POST /analytics/log — persist a turn entry ────────────────────────────
+  if (req.url === '/analytics/log') {
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    try {
+      const entry = JSON.parse(Buffer.concat(chunks).toString())
+      logAnalyticsEntry(entry)
+      res.writeHead(204); res.end()
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Invalid JSON' }))
+    }
+    return
   }
 
   // ── /compress endpoint ────────────────────────────────────────────────────

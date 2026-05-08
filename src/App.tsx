@@ -2,16 +2,18 @@ import { useState } from 'react'
 import { useSession } from './store/session'
 import Chat from './components/Chat'
 import MetricsDashboard from './components/MetricsDashboard'
+import AnalyticsDashboard from './components/AnalyticsDashboard'
 import PolicyConfig from './components/PolicyConfig'
 import Settings from './components/Settings'
 
-type Tab = 'chat' | 'metrics' | 'policy' | 'settings'
+type Tab = 'chat' | 'metrics' | 'analytics' | 'policy' | 'settings'
 
 const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'chat',     label: 'CHAT' },
-  { id: 'metrics',  label: 'METRICS' },
-  { id: 'policy',   label: 'POLICY' },
-  { id: 'settings', label: 'SETTINGS' },
+  { id: 'chat',      label: 'CHAT' },
+  { id: 'metrics',   label: 'METRICS' },
+  { id: 'analytics', label: 'ANALYTICS' },
+  { id: 'policy',    label: 'POLICY' },
+  { id: 'settings',  label: 'SETTINGS' },
 ]
 
 export default function App() {
@@ -104,6 +106,12 @@ export default function App() {
               ? <div className="text-gray-600 text-sm">No turns yet. Start a conversation.</div>
               : <MetricsDashboard metrics={metrics} />
             }
+          </div>
+        )}
+
+        {tab === 'analytics' && (
+          <div className="h-full overflow-y-auto p-6">
+            <AnalyticsDashboard />
           </div>
         )}
 

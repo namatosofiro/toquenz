@@ -86,24 +86,26 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   recordTurn: (compression, response) => {
+    const { config } = get()
+    const model             = config.model
+    const provider          = config.provider
+    const actualInputCost   = estimateCost(response.inputTokens, model, false)
+    const outputCost        = estimateCost(response.outputTokens, model, true)
+
+    const turn: TurnMetrics = {
+      turn:               get().metrics.turns.length + 1,
+      originalTokens:     compression.originalTokens,
+      compressedTokens:   compression.compressedTokens,
+      savings:            compression.savings,
+      timestamp:          Date.now(),
+      actualInputTokens:  response.inputTokens,
+      actualOutputTokens: response.outputTokens,
+      cacheReadTokens:    response.cacheReadTokens,
+      actualInputCostUsd: actualInputCost,
+      outputCostUsd:      outputCost,
+    }
+
     set(s => {
-      const model             = s.config.model
-      const actualInputCost   = estimateCost(response.inputTokens, model, false)
-      const outputCost        = estimateCost(response.outputTokens, model, true)
-
-      const turn: TurnMetrics = {
-        turn:               s.metrics.turns.length + 1,
-        originalTokens:     compression.originalTokens,
-        compressedTokens:   compression.compressedTokens,
-        savings:            compression.savings,
-        timestamp:          Date.now(),
-        actualInputTokens:  response.inputTokens,
-        actualOutputTokens: response.outputTokens,
-        cacheReadTokens:    response.cacheReadTokens,
-        actualInputCostUsd: actualInputCost,
-        outputCostUsd:      outputCost,
-      }
-
       const totalOrig = s.metrics.totalOriginalTokens   + compression.originalTokens
       const totalComp = s.metrics.totalCompressedTokens + compression.compressedTokens
       const saved     = Math.max(0, totalOrig - totalComp)
@@ -127,6 +129,28 @@ export const useSession = create<SessionState>((set, get) => ({
         },
       }
     })
+
+    // Persist to analytics log (fire-and-forget)
+    fetch('/analytics/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ts:                 turn.timestamp,
+        provider,
+        model,
+        originalTokens:     compression.originalTokens,
+        compressedTokens:   compression.compressedTokens,
+        savings:            compression.savings,
+        savingsUsd:         compression.savingsUsd,
+        co2SavedGrams:      compression.co2SavedGrams,
+        waterSavedMl:       compression.waterSavedMl,
+        actualInputTokens:  response.inputTokens,
+        actualOutputTokens: response.outputTokens,
+        cacheReadTokens:    response.cacheReadTokens,
+        inputCostUsd:       actualInputCost,
+        outputCostUsd:      outputCost,
+      }),
+    }).catch(() => { /* analytics failure is non-fatal */ })
   },
 
   setPolicy:          (p) => set(s => ({ policy: { ...s.policy, ...p } })),
